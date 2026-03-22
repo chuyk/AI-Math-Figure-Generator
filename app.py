@@ -39,6 +39,18 @@ if "manual_code_input" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = str(uuid.uuid4())
 
+# ---------------- 定義清除按鈕的回呼函式 (解決報錯問題) ----------------
+def clear_ai_tab():
+    st.session_state.text_input_ai = ""
+    st.session_state.uploader_key = str(uuid.uuid4())
+    st.session_state.generated_img_path = None
+    st.session_state.generated_code = None
+
+def clear_manual_tab():
+    st.session_state.manual_code_input = ""
+    st.session_state.manual_img_path = None
+    st.session_state.manual_format = None
+
 # ---------------- 側邊欄：設定區 ----------------
 with st.sidebar:
     st.header("⚙️ 系統設定")
@@ -51,7 +63,6 @@ with st.sidebar:
         st.session_state.api_key = ""
         st.rerun()
 
-    # 【防護升級】加上 key="passcode_key"，讓密碼即使網頁重整也絕對不會消失
     passcode = st.text_input("請輸入檢核碼", type="password", key="passcode_key")
 
     model_mapping = {
@@ -189,17 +200,12 @@ with tab1:
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # 【版面優化】將執行與清除按鈕並排
         btn_col1, btn_col2 = st.columns([2, 1])
         with btn_col1:
             generate_btn = st.button("🚀 開始產生幾何圖形", type="primary", use_container_width=True)
         with btn_col2:
-            if st.button("🗑️ 清除題目與結果", use_container_width=True):
-                st.session_state.text_input_ai = ""
-                st.session_state.uploader_key = str(uuid.uuid4())
-                st.session_state.generated_img_path = None
-                st.session_state.generated_code = None
-                st.rerun()
+            # 綁定回呼函式，解決 Exception 報錯問題
+            st.button("🗑️ 清除題目與結果", use_container_width=True, on_click=clear_ai_tab)
 
     with col2:
         st.subheader("👀 預覽與結果區")
@@ -260,9 +266,22 @@ with tab1:
                         st.success("🎉 圖形繪製成功！")
 
                     except Exception as e:
-                        st.error(f"❌ 發生錯誤：{e}")
-                        if passcode == "kaishow":
-                            st.write("AI 原始回應片段：", response_text[:500] + "...")
+                        error_msg = str(e)
+                        print(f"[系統錯誤日誌] AI 生成時發生錯誤: {error_msg}") # 將詳細錯誤寫入 Console
+                        
+                        # 友善的中文防呆提示
+                        if "quota" in error_msg.lower() or "429" in error_msg:
+                            st.error("❌ API 呼叫次數已達上限，或目前的 API Key 額度已耗盡。請稍後再試，或更換一組 API Key。")
+                        elif "api key" in error_msg.lower() or "authentication" in error_msg.lower() or "400" in error_msg or "403" in error_msg:
+                            st.error("❌ API Key 驗證失敗。請檢查您的 Google AI API Key 是否輸入正確。")
+                        else:
+                            st.error("❌ 系統在理解題目或產生程式碼時發生錯誤，請稍後再試或換個方式描述題目。")
+                        
+                        # 只有在開發者模式 (輸入 kaishow) 時才顯示原始錯誤與 AI 回應
+                        if st.session_state.passcode_key == "kaishow":
+                            st.warning(f"🔧 [開發者模式] 原始報錯內容:\n{error_msg}")
+                            if 'response_text' in locals():
+                                st.write("AI 原始回應片段：", response_text[:500] + "...")
 
         if st.session_state.generated_img_path and os.path.exists(st.session_state.generated_img_path):
             with result_container_ai:
@@ -273,7 +292,7 @@ with tab1:
                         data=file, file_name=f"geometry_figure.{st.session_state.current_format}",
                         mime=f"image/{st.session_state.current_format}", key="download_ai"
                     )
-                if passcode == "kaishow" and st.session_state.generated_code:
+                if st.session_state.passcode_key == "kaishow" and st.session_state.generated_code:
                     st.markdown("### 💻 後台繪圖程式碼")
                     st.code(st.session_state.generated_code, language="python")
 
@@ -301,16 +320,12 @@ with tab2:
         st.subheader("💻 貼上您的 Python 程式碼")
         manual_code = st.text_area("在此貼上 Python 程式碼", height=250, placeholder="import matplotlib.pyplot as plt\n...", key="manual_code_input")
         
-        # 【版面優化】將執行與清除按鈕並排
         btn_col3, btn_col4 = st.columns([2, 1])
         with btn_col3:
             execute_btn = st.button("⚡ 執行程式碼並產出圖形", type="primary", use_container_width=True)
         with btn_col4:
-            if st.button("🗑️ 清除程式碼與結果", use_container_width=True):
-                st.session_state.manual_code_input = ""
-                st.session_state.manual_img_path = None
-                st.session_state.manual_format = None
-                st.rerun()
+            # 綁定回呼函式
+            st.button("🗑️ 清除程式碼與結果", use_container_width=True, on_click=clear_manual_tab)
     
     with col_right:
         st.subheader("👀 預覽與結果區")
@@ -330,7 +345,11 @@ with tab2:
                             st.success("🎉 圖形繪製成功！")
                             
                         except Exception as e:
-                            st.error(f"❌ 程式碼執行錯誤：{e}")
+                            # 手動執行區也加入防呆提示，將真錯誤送到 console
+                            print(f"[系統錯誤日誌] 手動執行程式碼時發生錯誤: {str(e)}")
+                            st.error("❌ 程式碼執行失敗。請檢查您的 Python 語法或繪圖邏輯是否有誤。")
+                            if st.session_state.passcode_key == "kaishow":
+                                st.warning(f"🔧 [開發者模式] 原始報錯內容:\n{str(e)}")
         
         if st.session_state.manual_img_path and os.path.exists(st.session_state.manual_img_path):
             with result_container_manual:
