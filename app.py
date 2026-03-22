@@ -3,6 +3,7 @@ from google import genai
 from google.genai import types
 import re
 import os
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 # ---------------- 設定頁面與標題 ----------------
@@ -12,8 +13,7 @@ st.title("📐 AI 數學幾何附圖生成器")
 st.markdown("**👨‍🏫 宜蘭縣中華國中教師 / 阿凱老師製作**")
 st.markdown("---")
 
-# ---------------- 初始化 Session State (狀態記憶) ----------------
-# 確保網頁重新整理時，這些資料不會消失
+# ---------------- 初始化 Session State ----------------
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
 if "generated_img_path" not in st.session_state:
@@ -47,11 +47,9 @@ with st.sidebar:
     selected_model = model_mapping[selected_model_display]
 
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
-    
-    # 新增：透明背景 (去背) 選項
     is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=False)
 
-# ---------------- 主畫面：題目輸入與預覽區 ----------------
+# ---------------- 檢核碼驗證 ----------------
 if passcode not in ["kai", "kaishow"]:
     if passcode != "":
         st.error("❌ 檢核碼不正確，無法執行程式。")
@@ -59,133 +57,91 @@ if passcode not in ["kai", "kaishow"]:
 
 st.success("✅ 授權通過！")
 
-col1, col2 = st.columns([1, 1])
-
-# --- 左側：輸入區 ---
-with col1:
-    st.subheader("📝 輸入題目")
-    problem_text = st.text_area("請貼上題目 (支援 Markdown 或 LaTeX 語法)", height=150, 
-                                placeholder="例如：正方形 ABCD 中，F 是 CD 中點...")
-    
-    st.subheader("🖼️ 或提供題目圖片")
-    st.markdown("""
-        <style>
-        .paste-zone {
-            border: 2px dashed #4CAF50;
-            border-radius: 8px;
-            padding: 20px;
-            text-align: center;
-            background-color: #f1f8e9;
-            color: #2e7d32;
-            margin-bottom: 10px;
-            cursor: pointer;
-        }
-        </style>
-        <div class="paste-zone">
-            🖱️ <b>小技巧：請用滑鼠點擊此虛線框內部任意處</b><br>然後直接按下 <code>Ctrl + V</code> 即可貼上剪貼簿的圖片！
-        </div>
-        """, unsafe_allow_html=True)
+# ---------------- 共用畫圖存檔函式 ----------------
+def execute_and_save_plot(python_code, file_format, transparent):
+    """執行 Python 程式碼並強制存檔的共用邏輯"""
+    try:
+        # 1. 關閉所有之前的圖形，避免重疊
+        plt.close('all') 
         
-    uploaded_image = st.file_uploader("或點擊上方虛線框後貼上，也可按此按鈕上傳", type=["jpg", "jpeg", "png"])
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    generate_btn = st.button("🚀 開始產生幾何圖形", type="primary", use_container_width=True)
-
-# --- 右側：預覽與結果區 ---
-with col2:
-    st.subheader("👀 預覽與結果區")
-    if problem_text:
-        st.markdown("**【題目預覽】**")
-        st.markdown(problem_text)
-    if uploaded_image:
-        st.image(uploaded_image, caption="已讀取的圖片", use_container_width=True)
-        # 增加明確的視覺回饋
-        st.success("✅ 圖片已成功讀取！請點擊左下方按鈕開始生成。")
-    
-    st.markdown("---")
-    result_container = st.container()
-
-# ---------------- 執行與畫圖邏輯 ----------------
-if generate_btn:
-    if not st.session_state.api_key:
-        st.warning("⚠️ 請先在左側設定區輸入 API Key。")
-        st.stop()
+        # 2. 移除會讓 Streamlit 卡住的 plt.show()
+        safe_code = re.sub(r'plt\.show\(\)', '', python_code)
         
-    if not problem_text and not uploaded_image:
-        st.warning("⚠️ 請輸入題目文字或提供題目圖片。")
-        st.stop()
-
-    with result_container:
-        with st.spinner(f"正在使用 {selected_model_display} 進行邏輯推理與寫程式..."):
-            try:
-                client = genai.Client(api_key=st.session_state.api_key)
-                
-                # 處理去背參數
-                transparent_code = "transparent=True, " if is_transparent else ""
-                
-                # 終極版 System Prompt：加入字體不解散指令與去背設定
-                system_prompt = f"""
-                你是一個專業的 Python 程式設計師與數學老師。你的任務是閱讀數學幾何題目，並寫出一段 Python 程式碼，使用 matplotlib 畫出符合題目描述的正確圖形。
-                
-                【嚴格限制與要求】
-                1. 只輸出可執行的 Python 程式碼，不要有任何解釋文字，不要解答題目。
-                2. **解決 SVG 文字解散問題 (極度重要)**：程式碼開頭務必加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
-                3. 必須設定英文字級為 18pt：`plt.rcParams.update({{'font.size': 18}})`。
-                4. **畫布設定與防裁切**：請設定適當的畫布大小 `plt.figure(figsize=(6, 6))`。計算圖形的 x 和 y 座標範圍，並使用 `ax.set_xlim()` 和 `ax.set_ylim()` 在上下左右各多保留至少 1.5 到 2 個單位的空白 padding。
-                5. 所有頂點必須有清晰的英文標示，標示文字的座標需加上微小的位移 (offset)，避免與線條或頂點重疊。
-                6. 題目中提到的已知長度或角度必須標示在圖形上的對應位置。
-                7. 必須隱藏座標軸：`plt.axis('off')`。
-                8. 結束前請加上 `plt.tight_layout()`，最後將圖片儲存為檔案：`plt.savefig('output.{output_format}', format='{output_format}', bbox_inches='tight', pad_inches=0.3, {transparent_code}dpi=300)`，不要呼叫 `plt.show()`。
-                """
-                
-                contents = [system_prompt]
-                if problem_text:
-                    contents.append(f"題目文字：\n{problem_text}")
-                if uploaded_image:
-                    image_part = types.Part.from_bytes(data=uploaded_image.getvalue(), mime_type=uploaded_image.type)
-                    contents.append(image_part)
-
-                response = client.models.generate_content(
-                    model=selected_model,
-                    contents=contents
-                )
-                
-                response_text = response.text
-                code_match = re.search(r'```python\n(.*?)\n```', response_text, re.DOTALL)
-                
-                if code_match:
-                    python_code = code_match.group(1)
-                    exec(python_code)
-                    
-                    file_path = f"output.{output_format}"
-                    if os.path.exists(file_path):
-                        # 將成功生成的結果存入 Session State，確保畫面重新整理時不會消失
-                        st.session_state.generated_img_path = file_path
-                        st.session_state.generated_code = python_code
-                        st.session_state.current_format = output_format
-                else:
-                    st.error("❌ AI 未能產生有效的 Python 程式碼，請稍後再試或調整題目描述。")
-                    if passcode == "kaishow":
-                        st.write("AI 原始回應：", response_text)
-
-            except Exception as e:
-                st.error(f"執行時發生錯誤：{e}")
-
-# ---------------- 顯示保留在 Session State 的結果 ----------------
-# 只要檔案存在，就算按下下載按鈕觸發重新整理，這裡依然會把圖畫出來
-if st.session_state.generated_img_path and os.path.exists(st.session_state.generated_img_path):
-    with result_container:
-        st.success("🎉 圖形繪製成功！")
-        st.image(st.session_state.generated_img_path, caption=f"產生的幾何圖形 ({st.session_state.current_format.upper()})", use_container_width=True)
+        # 3. 確保字體不解散設定存在於環境中 (Word 編輯 SVG 關鍵)
+        mpl.rcParams['svg.fonttype'] = 'none'
         
-        with open(st.session_state.generated_img_path, "rb") as file:
-            st.download_button(
-                label=f"💾 下載 {st.session_state.current_format.upper()} 圖片",
-                data=file,
-                file_name=f"geometry_figure.{st.session_state.current_format}",
-                mime=f"image/{st.session_state.current_format}"
-            )
+        # 4. 執行程式碼
+        exec(safe_code, globals())
         
-        if passcode == "kaishow" and st.session_state.generated_code:
-            st.markdown("### 💻 後台繪圖程式碼")
-            st.code(st.session_state.generated_code, language="python")
+        # 5. 強制接管目前產生的圖形並存檔
+        fig = plt.gcf()
+        
+        if not fig.axes:
+            raise ValueError("程式碼沒有產生任何有效的 matplotlib 圖形。")
+            
+        file_path = f"output.{file_format}"
+        fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.3, transparent=transparent, dpi=300)
+        return file_path
+    except Exception as e:
+        raise e
+
+# ---------------- 建立雙頁籤介面 ----------------
+tab1, tab2 = st.tabs(["🤖 AI 產生圖形 (根據題目)", "💻 直接執行 Python 程式碼"])
+
+# ================= 頁籤 1：AI 產生圖形 =================
+with tab1:
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.subheader("📝 輸入題目")
+        problem_text = st.text_area("請貼上題目 (支援 Markdown 或 LaTeX 語法)", height=150, 
+                                    placeholder="例如：正方形 ABCD 中，F 是 CD 中點...", key="text_input_ai")
+        
+        st.subheader("🖼️ 或提供題目圖片")
+        uploaded_image = st.file_uploader("點擊上傳或拖曳圖片檔案", type=["jpg", "jpeg", "png"])
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        generate_btn = st.button("🚀 開始產生幾何圖形", type="primary", use_container_width=True)
+
+    with col2:
+        st.subheader("👀 預覽與結果區")
+        result_container_ai = st.container()
+
+        if generate_btn:
+            if not st.session_state.api_key:
+                st.warning("⚠️ 請先在左側設定區輸入 API Key。")
+                st.stop()
+            if not problem_text and not uploaded_image:
+                st.warning("⚠️ 請輸入題目文字或提供題目圖片。")
+                st.stop()
+
+            with result_container_ai:
+                with st.spinner(f"正在使用 {selected_model_display} 進行邏輯推理與寫程式..."):
+                    try:
+                        client = genai.Client(api_key=st.session_state.api_key)
+                        
+                        system_prompt = f"""
+                        你是一個專業的 Python 程式設計師與數學老師。任務：閱讀幾何題目，寫出 matplotlib 畫圖 Python 程式碼。
+                        
+                        【嚴格限制】
+                        1. 務必將程式碼包在 ```python 與 ``` 之間。不要解釋，不要解答。
+                        2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
+                        3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
+                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白至少 1.5 到 2 個單位防裁切。
+                        5. 頂點有英文標示 (需 offset)，長度/角度標示在圖上。
+                        6. 隱藏座標軸：`plt.axis('off')`。
+                        """
+                        
+                        contents = [system_prompt]
+                        if problem_text: contents.append(f"題目文字：\n{problem_text}")
+                        if uploaded_image:
+                            image_part = types.Part.from_bytes(data=uploaded_image.getvalue(), mime_type=uploaded_image.type)
+                            contents.append(image_part)
+
+                        response = client.models.generate_content(model=selected_model, contents=contents)
+                        response_text = response.text
+                        
+                        # 更聰明的程式碼擷取邏輯，容錯率更高
+                        code_match = re.search(r'
+http://googleusercontent.com/immersive_entry_chip/0
+
+接下來，您需要我為您整理如何將這個檔案推送到 GitHub，並順利部署到 Streamlit Cloud 的步驟嗎？
