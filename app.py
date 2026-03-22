@@ -16,7 +16,7 @@ st.markdown("---")
 with st.sidebar:
     st.header("⚙️ 系統設定")
     
-    # 1. API Key 輸入與清除機制 (使用 Session State 模擬暫存)
+    # 1. API Key 輸入與清除機制
     if "api_key" not in st.session_state:
         st.session_state.api_key = ""
 
@@ -32,11 +32,11 @@ with st.sidebar:
     # 2. 檢核碼
     passcode = st.text_input("請輸入檢核碼", type="password")
 
-    # 3. 模型選擇
+    # 3. 模型選擇 (已更新為正確的 preview 名稱)
     model_mapping = {
-        "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite", # 依據未來實際 API 名稱可能需微調
-        "Gemini 3 Flash": "gemini-3-flash",
-        "Gemini 3.1 Pro": "gemini-3.1-pro"
+        "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite-preview",
+        "Gemini 3 Flash": "gemini-3-flash-preview",
+        "Gemini 3.1 Pro": "gemini-3.1-pro-preview"
     }
     selected_model_display = st.selectbox(
         "選擇 AI 模型",
@@ -64,8 +64,9 @@ with col1:
     problem_text = st.text_area("請貼上題目 (支援 Markdown 或 LaTeX 語法)", height=200, 
                                 placeholder="例如：正方形 ABCD 中，F 是 CD 中點...")
     
-    st.subheader("🖼️ 或上傳題目圖片")
-    uploaded_image = st.file_uploader("上傳圖片檔案", type=["jpg", "jpeg", "png"])
+    st.subheader("🖼️ 或提供題目圖片")
+    st.info("💡 **小技巧：** 點選下方虛線框框後，可以直接按 `Ctrl + V` 貼上剪貼簿的圖片喔！")
+    uploaded_image = st.file_uploader("上傳或貼上圖片檔案", type=["jpg", "jpeg", "png"])
 
 with col2:
     st.subheader("預覽區")
@@ -73,7 +74,7 @@ with col2:
         st.markdown(" **題目預覽：** ")
         st.markdown(problem_text)
     if uploaded_image:
-        st.image(uploaded_image, caption="已上傳的圖片", use_container_width=True)
+        st.image(uploaded_image, caption="已讀取的圖片", use_container_width=True)
 
 # ---------------- 執行與畫圖邏輯 ----------------
 if st.button("🚀 開始產生幾何圖形", type="primary"):
@@ -82,7 +83,7 @@ if st.button("🚀 開始產生幾何圖形", type="primary"):
         st.stop()
         
     if not problem_text and not uploaded_image:
-        st.warning("⚠️ 請輸入題目文字或上傳題目圖片。")
+        st.warning("⚠️ 請輸入題目文字或提供題目圖片。")
         st.stop()
 
     with st.spinner(f"正在使用 {selected_model_display} 進行邏輯推理與寫程式..."):
@@ -107,7 +108,7 @@ if st.button("🚀 開始產生幾何圖形", type="primary"):
             if problem_text:
                 contents.append(f"題目文字：\n{problem_text}")
             if uploaded_image:
-                # 將上傳的圖片轉為 API 可接受的格式
+                # 將上傳/貼上的圖片轉為 API 可接受的格式
                 image_part = types.Part.from_bytes(data=uploaded_image.getvalue(), mime_type=uploaded_image.type)
                 contents.append(image_part)
 
