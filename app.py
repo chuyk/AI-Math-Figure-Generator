@@ -16,14 +16,12 @@ st.markdown("---")
 # ---------------- 初始化 Session State ----------------
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
-# Tab 1 狀態
 if "generated_img_path" not in st.session_state:
     st.session_state.generated_img_path = None
 if "generated_code" not in st.session_state:
     st.session_state.generated_code = None
 if "current_format" not in st.session_state:
     st.session_state.current_format = None
-# Tab 2 狀態 (修復下載後消失的問題)
 if "manual_img_path" not in st.session_state:
     st.session_state.manual_img_path = None
 if "manual_format" not in st.session_state:
@@ -54,7 +52,7 @@ with st.sidebar:
     selected_model = model_mapping[selected_model_display]
 
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
-    is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True) # 預設改為 True，更符合考卷需求
+    is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True)
 
 # ---------------- 檢核碼驗證 ----------------
 if passcode not in ["kai", "kaishow"]:
@@ -78,14 +76,15 @@ def execute_and_save_plot(python_code, file_format, transparent):
         if not fig.axes:
             raise ValueError("程式碼沒有產生任何有效的 matplotlib 圖形。")
             
-        # 徹底消滅透明長方形底板 (防止 Word 內出現幽靈邊框)
+        # 徹底消滅透明長方形底板
         if transparent:
             fig.patch.set_alpha(0.0)
             for ax in fig.axes:
                 ax.patch.set_alpha(0.0)
                 
         file_path = f"output.{file_format}"
-        fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.3, transparent=transparent, dpi=300)
+        # 【關鍵修改】將 pad_inches 設為 0.0，達成零白邊
+        fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.0, transparent=transparent, dpi=300)
         return file_path
     except Exception as e:
         raise e
@@ -131,7 +130,7 @@ with tab1:
                         1. 務必將程式碼包裝在三個反引號(backticks)中。不要解釋，不要解答。
                         2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
                         3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
-                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白至少 1.5 到 2 個單位防裁切。
+                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可，不要留太多白邊。
                         5. 頂點有英文標示 (需 offset)，長度/角度標示在圖上。
                         6. 【極度重要】附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
                         7. 隱藏座標軸：`plt.axis('off')`。
@@ -190,12 +189,13 @@ with tab2:
         st.subheader("📋 產生繪圖程式碼專用提詞 (Prompt)")
         st.info("💡 將下方提詞與您的題目一起貼給 ChatGPT / Claude，請它們幫您寫出最相容的 Python 程式碼！")
         
+        # 【關鍵修改】同步更新了提供給使用者的提詞範本
         prompt_template = """你是一個專業的 Python 程式設計師與數學老師。任務：閱讀幾何題目，寫出 matplotlib 畫圖 Python 程式碼。
 【嚴格限制】
 1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
 2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
 3. 設定字級：`plt.rcParams.update({'font.size': 18})`。
-4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白至少 1.5 到 2 個單位防裁切。
+4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可，不要留太多白邊。
 5. 頂點有英文標示 (需 offset)。【極度重要】只標示題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」！
 6. 隱藏座標軸：`plt.axis('off')`。"""
         
@@ -218,7 +218,6 @@ with tab2:
                         try:
                             file_path = execute_and_save_plot(manual_code, output_format, is_transparent)
                             
-                            # 寫入 Session State 確保下載不消失
                             st.session_state.manual_img_path = file_path
                             st.session_state.manual_format = output_format
                             st.success("🎉 圖形繪製成功！")
@@ -226,7 +225,6 @@ with tab2:
                         except Exception as e:
                             st.error(f"❌ 程式碼執行錯誤：{e}")
         
-        # 顯示保留的結果 (移出按鈕判斷外)
         if st.session_state.manual_img_path and os.path.exists(st.session_state.manual_img_path):
             with result_container_manual:
                 st.image(st.session_state.manual_img_path, caption=f"手動產生的圖形 ({st.session_state.manual_format.upper()})", use_container_width=True)
