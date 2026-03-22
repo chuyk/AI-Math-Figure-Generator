@@ -32,11 +32,10 @@ with st.sidebar:
     # 檢核碼
     passcode = st.text_input("請輸入檢核碼", type="password")
 
-    # 模型選擇 (已替換為 gemini-2.5-pro)
+    # 模型選擇 (已移除沒有免費額度的 Pro 模型)
     model_mapping = {
         "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite-preview",
-        "Gemini 3 Flash": "gemini-3-flash-preview",
-        "Gemini 2.5 Pro": "gemini-2.5-pro"
+        "Gemini 3 Flash": "gemini-3-flash-preview"
     }
     selected_model_display = st.selectbox(
         "選擇 AI 模型",
@@ -66,8 +65,27 @@ with col1:
                                 placeholder="例如：正方形 ABCD 中，F 是 CD 中點...")
     
     st.subheader("🖼️ 或提供題目圖片")
-    st.info("💡 如果 Ctrl+V 貼上無效，請將截圖存檔後，直接拖曳到下方框框中喔！")
-    uploaded_image = st.file_uploader("上傳圖片檔案", type=["jpg", "jpeg", "png"])
+    
+    # 加入明顯的虛線框視覺提示
+    st.markdown("""
+        <style>
+        .paste-zone {
+            border: 2px dashed #4CAF50;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            background-color: #f1f8e9;
+            color: #2e7d32;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+        </style>
+        <div class="paste-zone">
+            🖱️ <b>小技巧：請用滑鼠點擊此虛線框內部任意處</b><br>然後直接按下 <code>Ctrl + V</code> 即可貼上剪貼簿的圖片！
+        </div>
+        """, unsafe_allow_html=True)
+        
+    uploaded_image = st.file_uploader("或點擊下方按鈕上傳檔案", type=["jpg", "jpeg", "png"])
     
     st.markdown("<br>", unsafe_allow_html=True)
     generate_btn = st.button("🚀 開始產生幾何圖形", type="primary", use_container_width=True)
@@ -82,7 +100,6 @@ with col2:
         st.image(uploaded_image, caption="已讀取的圖片", use_container_width=True)
     
     st.markdown("---")
-    # 建立一個佔位符，確保畫出來的圖形會顯示在這裡
     result_container = st.container()
 
 # ---------------- 執行與畫圖邏輯 ----------------
@@ -95,13 +112,11 @@ if generate_btn:
         st.warning("⚠️ 請輸入題目文字或提供題目圖片。")
         st.stop()
 
-    # 將生成的結果放在右側 col2 的容器中
     with result_container:
         with st.spinner(f"正在使用 {selected_model_display} 進行邏輯推理與寫程式..."):
             try:
                 client = genai.Client(api_key=st.session_state.api_key)
                 
-                # 更新後的系統提示詞：加入防裁切與畫布比例設定
                 system_prompt = f"""
                 你是一個專業的 Python 程式設計師與數學老師。你的任務是閱讀數學幾何題目，並寫出一段 Python 程式碼，使用 matplotlib 畫出符合題目描述的正確圖形。
                 
@@ -133,17 +148,14 @@ if generate_btn:
                 if code_match:
                     python_code = code_match.group(1)
                     
-                    # 執行 Python 程式碼產生圖片
                     exec(python_code)
                     
                     st.success("🎉 圖形繪製成功！")
                     
                     file_path = f"output.{output_format}"
                     if os.path.exists(file_path):
-                        # 顯示產生的圖片在 col2 中
                         st.image(file_path, caption=f"產生的幾何圖形 ({output_format.upper()})", use_container_width=True)
                         
-                        # 提供下載按鈕
                         with open(file_path, "rb") as file:
                             btn = st.download_button(
                                 label=f"💾 下載 {output_format.upper()} 圖片",
