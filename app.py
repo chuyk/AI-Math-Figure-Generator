@@ -67,7 +67,7 @@ def execute_and_save_plot(python_code, file_format, transparent):
         # 2. 移除會讓 Streamlit 卡住的 plt.show()
         safe_code = re.sub(r'plt\.show\(\)', '', python_code)
         
-        # 3. 確保字體不解散設定存在於環境中 (Word 編輯 SVG 關鍵)
+        # 3. 確保字體不解散設定存在於環境中
         mpl.rcParams['svg.fonttype'] = 'none'
         
         # 4. 執行程式碼
@@ -123,7 +123,7 @@ with tab1:
                         你是一個專業的 Python 程式設計師與數學老師。任務：閱讀幾何題目，寫出 matplotlib 畫圖 Python 程式碼。
                         
                         【嚴格限制】
-                        1. 務必將程式碼包在 ```python 與 ``` 之間。不要解釋，不要解答。
+                        1. 務必將程式碼包裝在三個反引號(backticks)中。不要解釋，不要解答。
                         2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
                         3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
                         4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白至少 1.5 到 2 個單位防裁切。
@@ -140,8 +140,72 @@ with tab1:
                         response = client.models.generate_content(model=selected_model, contents=contents)
                         response_text = response.text
                         
-                        # 更聰明的程式碼擷取邏輯，容錯率更高
-                        code_match = re.search(r'
-http://googleusercontent.com/immersive_entry_chip/0
+                        # 【終極防護】使用 chr(96) 動態產生反引號，絕對避免網頁渲染器崩潰
+                        marker = chr(96) * 3
+                        pattern = rf"{marker}(?:python)?\n(.*?)\n{marker}"
+                        code_match = re.search(pattern, response_text, re.DOTALL | re.IGNORECASE)
+                        
+                        if code_match:
+                            python_code = code_match.group(1)
+                        elif "import matplotlib" in response_text:
+                            python_code = response_text.replace(f'{marker}python', '').replace(marker, '').strip()
+                        else:
+                            raise ValueError("無法從 AI 回應中解析出 Python 程式碼。")
 
-接下來，您需要我為您整理如何將這個檔案推送到 GitHub，並順利部署到 Streamlit Cloud 的步驟嗎？
+                        file_path = execute_and_save_plot(python_code, output_format, is_transparent)
+                        
+                        st.session_state.generated_img_path = file_path
+                        st.session_state.generated_code = python_code
+                        st.session_state.current_format = output_format
+                        st.success("🎉 圖形繪製成功！")
+
+                    except Exception as e:
+                        st.error(f"❌ 發生錯誤：{e}")
+                        if passcode == "kaishow":
+                            st.write("AI 原始回應片段：", response_text[:500] + "...")
+
+        # 顯示保留的結果
+        if st.session_state.generated_img_path and os.path.exists(st.session_state.generated_img_path):
+            with result_container_ai:
+                st.image(st.session_state.generated_img_path, caption=f"幾何圖形 ({st.session_state.current_format.upper()})", use_container_width=True)
+                with open(st.session_state.generated_img_path, "rb") as file:
+                    st.download_button(
+                        label=f"💾 下載 {st.session_state.current_format.upper()} 圖片",
+                        data=file, file_name=f"geometry_figure.{st.session_state.current_format}",
+                        mime=f"image/{st.session_state.current_format}", key="download_ai"
+                    )
+                if passcode == "kaishow" and st.session_state.generated_code:
+                    st.markdown("### 💻 後台繪圖程式碼")
+                    st.code(st.session_state.generated_code, language="python")
+
+# ================= 頁籤 2：直接執行 Python 程式碼 =================
+with tab2:
+    st.subheader("💻 貼上您的 Python matplotlib 程式碼")
+    st.info("💡 如果您在其他地方取得了畫圖程式碼，可以直接貼在這裡執行並下載。系統會自動幫您過濾 `plt.show()` 並處理存檔。")
+    
+    manual_code = st.text_area("在此貼上 Python 程式碼", height=300, placeholder="import matplotlib.pyplot as plt\n...")
+    
+    execute_btn = st.button("⚡ 執行程式碼並產出圖形", type="primary", use_container_width=True)
+    
+    result_container_manual = st.container()
+    
+    if execute_btn:
+        if not manual_code.strip():
+            st.warning("⚠️ 請先貼上程式碼。")
+        else:
+            with result_container_manual:
+                with st.spinner("正在執行程式碼..."):
+                    try:
+                        file_path = execute_and_save_plot(manual_code, output_format, is_transparent)
+                        
+                        st.success("🎉 圖形繪製成功！")
+                        st.image(file_path, caption=f"手動產生的圖形 ({output_format.upper()})", use_container_width=True)
+                        
+                        with open(file_path, "rb") as file:
+                            st.download_button(
+                                label=f"💾 下載 {output_format.upper()} 圖片",
+                                data=file, file_name=f"manual_geometry_figure.{output_format}",
+                                mime=f"image/{output_format}", key="download_manual"
+                            )
+                    except Exception as e:
+                        st.error(f"❌ 程式碼執行錯誤：{e}")
