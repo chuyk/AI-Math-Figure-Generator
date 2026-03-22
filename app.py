@@ -5,7 +5,7 @@ import re
 import os
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import uuid  # 新增：用於產生動態 key 以清空上傳區塊
+import uuid
 
 # ---------------- 設定頁面與標題 ----------------
 st.set_page_config(page_title="AI 數學幾何附圖生成器", page_icon="📐", layout="wide")
@@ -36,18 +36,16 @@ if "manual_format" not in st.session_state:
 if "manual_code_input" not in st.session_state:
     st.session_state.manual_code_input = ""
 
-# 用於重置 File Uploader 的動態 Key
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = str(uuid.uuid4())
 
 # ---------------- 側邊欄：設定區 ----------------
 with st.sidebar:
     st.header("🧹 畫面管理")
-    # 新增：一鍵清除按鈕
     if st.button("✨ 一鍵清除所有輸入與結果", use_container_width=True):
         st.session_state.text_input_ai = ""
         st.session_state.manual_code_input = ""
-        st.session_state.uploader_key = str(uuid.uuid4()) # 換一個新的 key，強制清空上傳檔案
+        st.session_state.uploader_key = str(uuid.uuid4()) 
         st.session_state.generated_img_path = None
         st.session_state.generated_code = None
         st.session_state.manual_img_path = None
@@ -73,12 +71,14 @@ with st.sidebar:
         "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite-preview",
         "Gemini 3 Flash": "gemini-3-flash-preview"
     }
-    # 修改：預設改為 Gemini 3 Flash (索引值為 1)
     selected_model_display = st.selectbox("選擇 AI 模型", options=list(model_mapping.keys()), index=1)
     selected_model = model_mapping[selected_model_display]
 
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
     is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True)
+    
+    # 【全新功能】是否加上長度標示的弧線/大括號
+    is_curved_label = st.checkbox("💡 長度數字兩側加上標示曲線 (弧線/大括號)", value=False)
 
 # ---------------- 檢核碼驗證 ----------------
 if passcode not in ["kai", "kaishow"]:
@@ -87,6 +87,11 @@ if passcode not in ["kai", "kaishow"]:
     st.stop()
 
 st.success("✅ 授權通過！")
+
+# ---------------- 動態生成 Prompt 輔助字串 ----------------
+curve_instruction = ""
+if is_curved_label:
+    curve_instruction = "\n8. 【標示曲線要求】：使用者要求長度數字旁必須有「曲線」。標示線段長度時，請使用 `ax.annotate` 搭配 `arrowprops=dict(arrowstyle='-', connectionstyle='arc3,rad=0.2', color='black')`，或繪製大括號/弧線，來涵蓋被標示的線段範圍，並將數字或問號標示在曲線外側（如同數學講義的畫法）。"
 
 # ---------------- 共用畫圖存檔函式 ----------------
 def execute_and_save_plot(python_code, file_format, transparent):
@@ -120,12 +125,10 @@ with tab1:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("📝 輸入題目")
-        # 綁定 key 讓清除按鈕可以控制它
         problem_text = st.text_area("請貼上題目 (支援 Markdown 或 LaTeX 語法)", height=150, 
                                     placeholder="例如：正方形 ABCD 中，F 是 CD 中點...", key="text_input_ai")
         
         st.subheader("🖼️ 或提供題目圖片")
-        # 綁定動態 key 讓清除按鈕可以清空檔案
         uploaded_image = st.file_uploader("點擊上傳或拖曳圖片檔案", type=["jpg", "jpeg", "png"], key=st.session_state.uploader_key)
         
         st.markdown("<br>", unsafe_allow_html=True)
@@ -158,7 +161,7 @@ with tab1:
                         4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可，不要留太多白邊。
                         5. 頂點有英文標示 (需 offset)，長度/角度標示在圖上。
                         6. 【極度重要】附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
-                        7. 隱藏座標軸：`plt.axis('off')`。
+                        7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}
                         """
                         
                         contents = [system_prompt]
@@ -214,19 +217,18 @@ with tab2:
         st.subheader("📋 產生繪圖程式碼專用提詞 (Prompt)")
         st.info("💡 將下方提詞與您的題目一起貼給 ChatGPT / Claude，請它們幫您寫出最相容的 Python 程式碼！")
         
-        prompt_template = """你是一個專業的 Python 程式設計師與數學老師。任務：閱讀幾何題目，寫出 matplotlib 畫圖 Python 程式碼。
+        prompt_template = f"""你是一個專業的 Python 程式設計師與數學老師。任務：閱讀幾何題目，寫出 matplotlib 畫圖 Python 程式碼。
 【嚴格限制】
 1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
 2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
-3. 設定字級：`plt.rcParams.update({'font.size': 18})`。
+3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
 4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可，不要留太多白邊。
 5. 頂點有英文標示 (需 offset)。【極度重要】只標示題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」！
-6. 隱藏座標軸：`plt.axis('off')`。"""
+6. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}"""
         
         st.code(prompt_template, language="markdown")
         
         st.subheader("💻 貼上您的 Python 程式碼")
-        # 綁定 key 讓清除按鈕可以控制它
         manual_code = st.text_area("在此貼上 Python 程式碼", height=250, placeholder="import matplotlib.pyplot as plt\n...", key="manual_code_input")
         execute_btn = st.button("⚡ 執行程式碼並產出圖形", type="primary", use_container_width=True)
     
