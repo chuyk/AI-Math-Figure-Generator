@@ -77,11 +77,11 @@ with st.sidebar:
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
     is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True)
     is_curved_label = st.checkbox("💡 長度數字兩側加上標示曲線 (無箭號)", value=False)
-    
-    # 【新增功能】文字遮罩模式切換
     is_text_masking = st.checkbox("💡 長度數字旁留出空白區 (Mask)", value=True)
     
-    # LaTeX/Unicode 指令
+    # 【新增功能】1/5 標線選項
+    is_short_dim_label = st.checkbox("💡 長度標示線縮短為 1/5 段長 (無箭號)", value=False)
+    
     st.markdown("---")
     text_render_mode = st.radio(
         "🔤 文字渲染模式 (Word 相容性)",
@@ -102,7 +102,7 @@ st.success("✅ 授權通過！")
 # 1. 曲線指令
 curve_instruction = ""
 if is_curved_label:
-    curve_instruction = "\n8. 【標示曲線要求】：使用者要求長度數字旁必須有「曲線」。標示線段長度時，請使用 `ax.annotate('', xy=端點1, xytext=端點2, arrowprops=dict(arrowstyle='-', connectionstyle='arc3,rad=0.2', color='black'))` 來精準連接線段兩端點，不要連到文字中心。"
+    curve_instruction = "\n8. 【標示曲線要求】：標示長度時，請使用 `ax.annotate('', xy=端點1, xytext=端點2, arrowprops=dict(arrowstyle='-', connectionstyle='arc3,rad=0.2', color='black'))` 來精準連接線段兩端點，不要連到文字中心。"
 
 # 2. LaTeX/Unicode 指令
 if is_latex_mode:
@@ -114,6 +114,11 @@ else:
 mask_instruction = ""
 if is_text_masking:
     mask_instruction = "\n9. 【文字遮罩要求 (防線條穿透)】：輸出數字或標示文字的 `text` 或 `annotate` 必須加上白色遮罩參數：`bbox=dict(fc='white', ec='none', pad=0.1)`，確保壓在底下的線條被擋住。"
+
+# 4. 1/5 標線指令 (動態計算)
+short_dim_instruction = ""
+if is_short_dim_label:
+    short_dim_instruction = "\n10. 【長度標示線縮短要求 (極度重要)】：使用者要求長度數字旁必須有「1/5 標線」。標示線段 (p1, p2) 長度時，不要繪製一條完整的連線。請分別繪製從 p1 到 p1+0.2*(p2-p1)，以及從 p2 到 p2-0.2*(p2-p1) 的短線 (例如使用 `ax.plot` 繪製向量 L*0.2)。兩段短線中間留白，標示數字或問號放中間。嚴禁畫箭頭。"
 
 # ---------------- 共用畫圖存檔函式 ----------------
 def execute_and_save_plot(python_code, file_format, transparent):
@@ -134,7 +139,8 @@ def execute_and_save_plot(python_code, file_format, transparent):
                 ax.patch.set_alpha(0.0)
                 
         file_path = f"output.{file_format}"
-        fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.0, transparent=transparent, dpi=300)
+        # 【解決超出畫布】加回 bbox_inches='tight' 和小小的 pad_inches=0.1 作為緩衝區域
+        fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.1, transparent=transparent, dpi=300)
         return file_path
     except Exception as e:
         raise e
@@ -176,14 +182,14 @@ with tab1:
                         system_prompt = f"""
                         你是一個專業的 Python 程式設計師與數學老師。任務：閱讀幾何題目，寫出 matplotlib 畫圖 Python 程式碼。
                         
-                        【嚴格限制】
+                        【嚴格限制與防裁切要求】
                         1. 務必將程式碼包裝在三個反引號(backticks)中。不要解釋，不要解答。
                         2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
                         3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
-                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可，不要留太多白邊。
+                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 在上下左右各保留 **至少 1.0 個單位** 的空白 padding 區域以防止裁切（尤其是較大的字體或標示）。不要留太少。
                         {latex_instruction}
                         6. 【極度重要】附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
-                        7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}{mask_instruction}
+                        7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}{mask_instruction}{short_dim_instruction}
                         """
                         
                         contents = [system_prompt]
@@ -240,14 +246,14 @@ with tab2:
         st.info("💡 將下方提詞與您的題目一起貼給 ChatGPT / Claude，請它們幫您寫出最相容的 Python 程式碼！")
         
         prompt_template = f"""你是一個專業的 Python 程式設計師與數學老師。任務：閱讀幾何題目，寫出 matplotlib 畫圖 Python 程式碼。
-【嚴格限制】
+【嚴格限制與防裁切要求】
 1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
 2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
 3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
-4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可，不要留太多白邊。
+4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 在上下左右各保留 **至少 1.0 個單位** 的空白 padding 區域以防止裁切。不要留太少。
 {latex_instruction}
 6. 只標示題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」！
-7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}{mask_instruction}"""
+7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}{mask_instruction}{short_dim_instruction}"""
         
         st.code(prompt_template, language="markdown")
         
