@@ -16,12 +16,18 @@ st.markdown("---")
 # ---------------- 初始化 Session State ----------------
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
+# Tab 1 狀態
 if "generated_img_path" not in st.session_state:
     st.session_state.generated_img_path = None
 if "generated_code" not in st.session_state:
     st.session_state.generated_code = None
 if "current_format" not in st.session_state:
     st.session_state.current_format = None
+# Tab 2 狀態 (修復下載後消失的問題)
+if "manual_img_path" not in st.session_state:
+    st.session_state.manual_img_path = None
+if "manual_format" not in st.session_state:
+    st.session_state.manual_format = None
 
 # ---------------- 側邊欄：設定區 ----------------
 with st.sidebar:
@@ -35,6 +41,7 @@ with st.sidebar:
         st.session_state.api_key = ""
         st.session_state.generated_img_path = None
         st.session_state.generated_code = None
+        st.session_state.manual_img_path = None
         st.rerun()
 
     passcode = st.text_input("請輸入檢核碼", type="password")
@@ -47,7 +54,7 @@ with st.sidebar:
     selected_model = model_mapping[selected_model_display]
 
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
-    is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=False)
+    is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True) # 預設改為 True，更符合考卷需求
 
 # ---------------- 檢核碼驗證 ----------------
 if passcode not in ["kai", "kaishow"]:
@@ -61,24 +68,22 @@ st.success("✅ 授權通過！")
 def execute_and_save_plot(python_code, file_format, transparent):
     """執行 Python 程式碼並強制存檔的共用邏輯"""
     try:
-        # 1. 關閉所有之前的圖形，避免重疊
         plt.close('all') 
-        
-        # 2. 移除會讓 Streamlit 卡住的 plt.show()
         safe_code = re.sub(r'plt\.show\(\)', '', python_code)
-        
-        # 3. 確保字體不解散設定存在於環境中
         mpl.rcParams['svg.fonttype'] = 'none'
         
-        # 4. 執行程式碼
         exec(safe_code, globals())
-        
-        # 5. 強制接管目前產生的圖形並存檔
         fig = plt.gcf()
         
         if not fig.axes:
             raise ValueError("程式碼沒有產生任何有效的 matplotlib 圖形。")
             
+        # 徹底消滅透明長方形底板 (防止 Word 內出現幽靈邊框)
+        if transparent:
+            fig.patch.set_alpha(0.0)
+            for ax in fig.axes:
+                ax.patch.set_alpha(0.0)
+                
         file_path = f"output.{file_format}"
         fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.3, transparent=transparent, dpi=300)
         return file_path
@@ -128,7 +133,8 @@ with tab1:
                         3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
                         4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白至少 1.5 到 2 個單位防裁切。
                         5. 頂點有英文標示 (需 offset)，長度/角度標示在圖上。
-                        6. 隱藏座標軸：`plt.axis('off')`。
+                        6. 【極度重要】附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
+                        7. 隱藏座標軸：`plt.axis('off')`。
                         """
                         
                         contents = [system_prompt]
@@ -140,7 +146,6 @@ with tab1:
                         response = client.models.generate_content(model=selected_model, contents=contents)
                         response_text = response.text
                         
-                        # 【終極防護】使用 chr(96) 動態產生反引號，絕對避免網頁渲染器崩潰
                         marker = chr(96) * 3
                         pattern = rf"{marker}(?:python)?\n(.*?)\n{marker}"
                         code_match = re.search(pattern, response_text, re.DOTALL | re.IGNORECASE)
@@ -164,7 +169,6 @@ with tab1:
                         if passcode == "kaishow":
                             st.write("AI 原始回應片段：", response_text[:500] + "...")
 
-        # 顯示保留的結果
         if st.session_state.generated_img_path and os.path.exists(st.session_state.generated_img_path):
             with result_container_ai:
                 st.image(st.session_state.generated_img_path, caption=f"幾何圖形 ({st.session_state.current_format.upper()})", use_container_width=True)
@@ -180,32 +184,55 @@ with tab1:
 
 # ================= 頁籤 2：直接執行 Python 程式碼 =================
 with tab2:
-    st.subheader("💻 貼上您的 Python matplotlib 程式碼")
-    st.info("💡 如果您在其他地方取得了畫圖程式碼，可以直接貼在這裡執行並下載。系統會自動幫您過濾 `plt.show()` 並處理存檔。")
+    col_left, col_right = st.columns([1, 1])
     
-    manual_code = st.text_area("在此貼上 Python 程式碼", height=300, placeholder="import matplotlib.pyplot as plt\n...")
+    with col_left:
+        st.subheader("📋 產生繪圖程式碼專用提詞 (Prompt)")
+        st.info("💡 將下方提詞與您的題目一起貼給 ChatGPT / Claude，請它們幫您寫出最相容的 Python 程式碼！")
+        
+        prompt_template = """你是一個專業的 Python 程式設計師與數學老師。任務：閱讀幾何題目，寫出 matplotlib 畫圖 Python 程式碼。
+【嚴格限制】
+1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
+2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
+3. 設定字級：`plt.rcParams.update({'font.size': 18})`。
+4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白至少 1.5 到 2 個單位防裁切。
+5. 頂點有英文標示 (需 offset)。【極度重要】只標示題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」！
+6. 隱藏座標軸：`plt.axis('off')`。"""
+        
+        st.code(prompt_template, language="markdown")
+        
+        st.subheader("💻 貼上您的 Python 程式碼")
+        manual_code = st.text_area("在此貼上 Python 程式碼", height=250, placeholder="import matplotlib.pyplot as plt\n...")
+        execute_btn = st.button("⚡ 執行程式碼並產出圖形", type="primary", use_container_width=True)
     
-    execute_btn = st.button("⚡ 執行程式碼並產出圖形", type="primary", use_container_width=True)
-    
-    result_container_manual = st.container()
-    
-    if execute_btn:
-        if not manual_code.strip():
-            st.warning("⚠️ 請先貼上程式碼。")
-        else:
+    with col_right:
+        st.subheader("👀 預覽與結果區")
+        result_container_manual = st.container()
+        
+        if execute_btn:
+            if not manual_code.strip():
+                st.warning("⚠️ 請先貼上程式碼。")
+            else:
+                with result_container_manual:
+                    with st.spinner("正在執行程式碼..."):
+                        try:
+                            file_path = execute_and_save_plot(manual_code, output_format, is_transparent)
+                            
+                            # 寫入 Session State 確保下載不消失
+                            st.session_state.manual_img_path = file_path
+                            st.session_state.manual_format = output_format
+                            st.success("🎉 圖形繪製成功！")
+                            
+                        except Exception as e:
+                            st.error(f"❌ 程式碼執行錯誤：{e}")
+        
+        # 顯示保留的結果 (移出按鈕判斷外)
+        if st.session_state.manual_img_path and os.path.exists(st.session_state.manual_img_path):
             with result_container_manual:
-                with st.spinner("正在執行程式碼..."):
-                    try:
-                        file_path = execute_and_save_plot(manual_code, output_format, is_transparent)
-                        
-                        st.success("🎉 圖形繪製成功！")
-                        st.image(file_path, caption=f"手動產生的圖形 ({output_format.upper()})", use_container_width=True)
-                        
-                        with open(file_path, "rb") as file:
-                            st.download_button(
-                                label=f"💾 下載 {output_format.upper()} 圖片",
-                                data=file, file_name=f"manual_geometry_figure.{output_format}",
-                                mime=f"image/{output_format}", key="download_manual"
-                            )
-                    except Exception as e:
-                        st.error(f"❌ 程式碼執行錯誤：{e}")
+                st.image(st.session_state.manual_img_path, caption=f"手動產生的圖形 ({st.session_state.manual_format.upper()})", use_container_width=True)
+                with open(st.session_state.manual_img_path, "rb") as file:
+                    st.download_button(
+                        label=f"💾 下載 {st.session_state.manual_format.upper()} 圖片",
+                        data=file, file_name=f"manual_geometry_figure.{st.session_state.manual_format}",
+                        mime=f"image/{st.session_state.manual_format}", key="download_manual_btn"
+                    )
