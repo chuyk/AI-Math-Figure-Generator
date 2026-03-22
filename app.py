@@ -25,29 +25,22 @@ if "generated_code" not in st.session_state:
     st.session_state.generated_code = None
 if "current_format" not in st.session_state:
     st.session_state.current_format = None
+if "text_input_ai" not in st.session_state:
+    st.session_state.text_input_ai = ""
 
 # Tab 2 狀態
 if "manual_img_path" not in st.session_state:
     st.session_state.manual_img_path = None
 if "manual_format" not in st.session_state:
     st.session_state.manual_format = None
+if "manual_code_input" not in st.session_state:
+    st.session_state.manual_code_input = ""
 
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = str(uuid.uuid4())
 
 # ---------------- 側邊欄：設定區 ----------------
 with st.sidebar:
-    st.header("🧹 畫面管理")
-    if st.button("✨ 一鍵清除所有輸入與結果", use_container_width=True):
-        st.session_state.text_input_ai = ""
-        st.session_state.manual_code_input = ""
-        st.session_state.uploader_key = str(uuid.uuid4()) 
-        st.session_state.generated_img_path = None
-        st.session_state.generated_code = None
-        st.session_state.manual_img_path = None
-        st.rerun()
-
-    st.markdown("---")
     st.header("⚙️ 系統設定")
     
     api_key_input = st.text_input("請輸入 [Google AI API Key](https://aistudio.google.com/app/api-keys)", type="password", value=st.session_state.api_key)
@@ -58,7 +51,8 @@ with st.sidebar:
         st.session_state.api_key = ""
         st.rerun()
 
-    passcode = st.text_input("請輸入檢核碼", type="password")
+    # 【防護升級】加上 key="passcode_key"，讓密碼即使網頁重整也絕對不會消失
+    passcode = st.text_input("請輸入檢核碼", type="password", key="passcode_key")
 
     model_mapping = {
         "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite-preview",
@@ -92,8 +86,8 @@ with st.sidebar:
     is_latex_mode = text_render_mode.startswith("LaTeX")
 
 # ---------------- 檢核碼驗證 ----------------
-if passcode not in ["kai", "kaishow"]:
-    if passcode != "":
+if st.session_state.passcode_key not in ["kai", "kaishow"]:
+    if st.session_state.passcode_key != "":
         st.error("❌ 檢核碼不正確，無法執行程式。")
     st.stop()
 
@@ -174,7 +168,6 @@ def execute_and_save_plot(python_code, file_format, transparent):
                 ax.patch.set_alpha(0.0)
                 
         file_path = f"output.{file_format}"
-        # 【去白邊關鍵】將 pad_inches 徹底歸零
         fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.0, transparent=transparent, dpi=300)
         return file_path
     except Exception as e:
@@ -195,7 +188,18 @@ with tab1:
         uploaded_image = st.file_uploader("點擊上傳或拖曳圖片檔案", type=["jpg", "jpeg", "png"], key=st.session_state.uploader_key)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        generate_btn = st.button("🚀 開始產生幾何圖形", type="primary", use_container_width=True)
+        
+        # 【版面優化】將執行與清除按鈕並排
+        btn_col1, btn_col2 = st.columns([2, 1])
+        with btn_col1:
+            generate_btn = st.button("🚀 開始產生幾何圖形", type="primary", use_container_width=True)
+        with btn_col2:
+            if st.button("🗑️ 清除題目與結果", use_container_width=True):
+                st.session_state.text_input_ai = ""
+                st.session_state.uploader_key = str(uuid.uuid4())
+                st.session_state.generated_img_path = None
+                st.session_state.generated_code = None
+                st.rerun()
 
     with col2:
         st.subheader("👀 預覽與結果區")
@@ -296,7 +300,17 @@ with tab2:
         
         st.subheader("💻 貼上您的 Python 程式碼")
         manual_code = st.text_area("在此貼上 Python 程式碼", height=250, placeholder="import matplotlib.pyplot as plt\n...", key="manual_code_input")
-        execute_btn = st.button("⚡ 執行程式碼並產出圖形", type="primary", use_container_width=True)
+        
+        # 【版面優化】將執行與清除按鈕並排
+        btn_col3, btn_col4 = st.columns([2, 1])
+        with btn_col3:
+            execute_btn = st.button("⚡ 執行程式碼並產出圖形", type="primary", use_container_width=True)
+        with btn_col4:
+            if st.button("🗑️ 清除程式碼與結果", use_container_width=True):
+                st.session_state.manual_code_input = ""
+                st.session_state.manual_img_path = None
+                st.session_state.manual_format = None
+                st.rerun()
     
     with col_right:
         st.subheader("👀 預覽與結果區")
