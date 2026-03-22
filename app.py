@@ -77,6 +77,15 @@ with st.sidebar:
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
     is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True)
     is_curved_label = st.checkbox("💡 長度數字兩側加上標示曲線 (無箭號)", value=False)
+    
+    # 【新增功能】文字渲染模式切換
+    st.markdown("---")
+    text_render_mode = st.radio(
+        "🔤 文字渲染模式 (Word 相容性)",
+        options=["純 Unicode (推薦，Word 轉換不破碎)", "LaTeX 數學語法 (較美觀，但 Word 轉換會碎裂)"],
+        index=0
+    )
+    is_latex_mode = text_render_mode.startswith("LaTeX")
 
 # ---------------- 檢核碼驗證 ----------------
 if passcode not in ["kai", "kaishow"]:
@@ -87,9 +96,16 @@ if passcode not in ["kai", "kaishow"]:
 st.success("✅ 授權通過！")
 
 # ---------------- 動態產生提示詞 ----------------
+# 1. 曲線指令
 curve_instruction = ""
 if is_curved_label:
-    curve_instruction = "\n8. 【標示曲線要求】：標示線段長度時，必須繪製「無箭頭」的弧線 (如 `arrowstyle='-'`) 涵蓋線段。為了避免線條壓到數字，輸出數字的 `text` 或 `annotate` 必須加上白色遮罩參數：`bbox=dict(boxstyle='square,pad=0.1', fc='white', ec='none')`。"
+    curve_instruction = "\n8. 【標示曲線要求】：標示長度時，請使用 `ax.annotate('', xy=端點1, xytext=端點2, arrowprops=dict(arrowstyle='-', connectionstyle='arc3,rad=0.2'))` 來精準畫出「連接兩端點」的無箭頭弧線。數字請另外使用 `ax.text` 放在弧線外側，並務必加上白色遮罩 `bbox=dict(boxstyle='square,pad=0.1', fc='white', ec='none')` 避免線條穿透。"
+
+# 2. LaTeX/Unicode 指令
+if is_latex_mode:
+    latex_instruction = "5. 頂點與長度標示：允許使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$` 或 `$2\\sqrt{3}$`) 來確保數學符號美觀。"
+else:
+    latex_instruction = "5. 頂點與長度標示：【防碎裂極度重要】絕對禁止使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$` 或 `$2\\sqrt{3}$`)，請一律使用「純 Unicode 文字」(如 `'∠A=30°'` 或 `'2√3'`)，避免 SVG 匯入 Word 時文字碎裂。"
 
 # ---------------- 共用畫圖存檔函式 ----------------
 def execute_and_save_plot(python_code, file_format, transparent):
@@ -157,8 +173,8 @@ with tab1:
                         2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
                         3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
                         4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可。
-                        5. 頂點與長度標示：【防碎裂極度重要】絕對禁止使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$`)，請一律使用「純 Unicode 文字」(如 `'∠A=30°'`)，否則 Word 轉換時文字會破碎。
-                        6. 附圖只能畫出給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
+                        {latex_instruction}
+                        6. 【極度重要】附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
                         7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}
                         """
                         
@@ -221,7 +237,7 @@ with tab2:
 2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
 3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
 4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可。
-5. 頂點與長度標示：【絕對禁止使用 LaTeX 語法】(如 `$\\angle A = 30^\\circ$`)，請一律使用純 Unicode 文字 (如 `'∠A=30°'`)，防止轉換 SVG 時文字破碎。
+{latex_instruction}
 6. 只標示題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」！
 7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}"""
         
