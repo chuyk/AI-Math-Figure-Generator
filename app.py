@@ -5,6 +5,7 @@ import re
 import os
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import uuid  # 新增：用於產生動態 key 以清空上傳區塊
 
 # ---------------- 設定頁面與標題 ----------------
 st.set_page_config(page_title="AI 數學幾何附圖生成器", page_icon="📐", layout="wide")
@@ -16,19 +17,43 @@ st.markdown("---")
 # ---------------- 初始化 Session State ----------------
 if "api_key" not in st.session_state:
     st.session_state.api_key = ""
+
+# Tab 1 狀態
 if "generated_img_path" not in st.session_state:
     st.session_state.generated_img_path = None
 if "generated_code" not in st.session_state:
     st.session_state.generated_code = None
 if "current_format" not in st.session_state:
     st.session_state.current_format = None
+if "text_input_ai" not in st.session_state:
+    st.session_state.text_input_ai = ""
+
+# Tab 2 狀態
 if "manual_img_path" not in st.session_state:
     st.session_state.manual_img_path = None
 if "manual_format" not in st.session_state:
     st.session_state.manual_format = None
+if "manual_code_input" not in st.session_state:
+    st.session_state.manual_code_input = ""
+
+# 用於重置 File Uploader 的動態 Key
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = str(uuid.uuid4())
 
 # ---------------- 側邊欄：設定區 ----------------
 with st.sidebar:
+    st.header("🧹 畫面管理")
+    # 新增：一鍵清除按鈕
+    if st.button("✨ 一鍵清除所有輸入與結果", use_container_width=True):
+        st.session_state.text_input_ai = ""
+        st.session_state.manual_code_input = ""
+        st.session_state.uploader_key = str(uuid.uuid4()) # 換一個新的 key，強制清空上傳檔案
+        st.session_state.generated_img_path = None
+        st.session_state.generated_code = None
+        st.session_state.manual_img_path = None
+        st.rerun()
+
+    st.markdown("---")
     st.header("⚙️ 系統設定")
     
     api_key_input = st.text_input("請輸入 Google AI API Key", type="password", value=st.session_state.api_key)
@@ -48,7 +73,8 @@ with st.sidebar:
         "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite-preview",
         "Gemini 3 Flash": "gemini-3-flash-preview"
     }
-    selected_model_display = st.selectbox("選擇 AI 模型", options=list(model_mapping.keys()), index=0)
+    # 修改：預設改為 Gemini 3 Flash (索引值為 1)
+    selected_model_display = st.selectbox("選擇 AI 模型", options=list(model_mapping.keys()), index=1)
     selected_model = model_mapping[selected_model_display]
 
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
@@ -64,7 +90,6 @@ st.success("✅ 授權通過！")
 
 # ---------------- 共用畫圖存檔函式 ----------------
 def execute_and_save_plot(python_code, file_format, transparent):
-    """執行 Python 程式碼並強制存檔的共用邏輯"""
     try:
         plt.close('all') 
         safe_code = re.sub(r'plt\.show\(\)', '', python_code)
@@ -76,14 +101,12 @@ def execute_and_save_plot(python_code, file_format, transparent):
         if not fig.axes:
             raise ValueError("程式碼沒有產生任何有效的 matplotlib 圖形。")
             
-        # 徹底消滅透明長方形底板
         if transparent:
             fig.patch.set_alpha(0.0)
             for ax in fig.axes:
                 ax.patch.set_alpha(0.0)
                 
         file_path = f"output.{file_format}"
-        # 【關鍵修改】將 pad_inches 設為 0.0，達成零白邊
         fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.0, transparent=transparent, dpi=300)
         return file_path
     except Exception as e:
@@ -97,11 +120,13 @@ with tab1:
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("📝 輸入題目")
+        # 綁定 key 讓清除按鈕可以控制它
         problem_text = st.text_area("請貼上題目 (支援 Markdown 或 LaTeX 語法)", height=150, 
                                     placeholder="例如：正方形 ABCD 中，F 是 CD 中點...", key="text_input_ai")
         
         st.subheader("🖼️ 或提供題目圖片")
-        uploaded_image = st.file_uploader("點擊上傳或拖曳圖片檔案", type=["jpg", "jpeg", "png"])
+        # 綁定動態 key 讓清除按鈕可以清空檔案
+        uploaded_image = st.file_uploader("點擊上傳或拖曳圖片檔案", type=["jpg", "jpeg", "png"], key=st.session_state.uploader_key)
         
         st.markdown("<br>", unsafe_allow_html=True)
         generate_btn = st.button("🚀 開始產生幾何圖形", type="primary", use_container_width=True)
@@ -189,7 +214,6 @@ with tab2:
         st.subheader("📋 產生繪圖程式碼專用提詞 (Prompt)")
         st.info("💡 將下方提詞與您的題目一起貼給 ChatGPT / Claude，請它們幫您寫出最相容的 Python 程式碼！")
         
-        # 【關鍵修改】同步更新了提供給使用者的提詞範本
         prompt_template = """你是一個專業的 Python 程式設計師與數學老師。任務：閱讀幾何題目，寫出 matplotlib 畫圖 Python 程式碼。
 【嚴格限制】
 1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
@@ -202,7 +226,8 @@ with tab2:
         st.code(prompt_template, language="markdown")
         
         st.subheader("💻 貼上您的 Python 程式碼")
-        manual_code = st.text_area("在此貼上 Python 程式碼", height=250, placeholder="import matplotlib.pyplot as plt\n...")
+        # 綁定 key 讓清除按鈕可以控制它
+        manual_code = st.text_area("在此貼上 Python 程式碼", height=250, placeholder="import matplotlib.pyplot as plt\n...", key="manual_code_input")
         execute_btn = st.button("⚡ 執行程式碼並產出圖形", type="primary", use_container_width=True)
     
     with col_right:
