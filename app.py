@@ -5,7 +5,7 @@ import re
 import os
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import uuid  # 新增：用於產生動態 key 以清空上傳區塊
+import uuid
 
 # ---------------- 設定頁面與標題 ----------------
 st.set_page_config(page_title="AI 數學幾何附圖生成器", page_icon="📐", layout="wide")
@@ -36,18 +36,16 @@ if "manual_format" not in st.session_state:
 if "manual_code_input" not in st.session_state:
     st.session_state.manual_code_input = ""
 
-# 用於重置 File Uploader 的動態 Key
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = str(uuid.uuid4())
 
 # ---------------- 側邊欄：設定區 ----------------
 with st.sidebar:
     st.header("🧹 畫面管理")
-    # 新增：一鍵清除按鈕
     if st.button("✨ 一鍵清除所有輸入與結果", use_container_width=True):
         st.session_state.text_input_ai = ""
         st.session_state.manual_code_input = ""
-        st.session_state.uploader_key = str(uuid.uuid4()) # 換一個新的 key，強制清空上傳檔案
+        st.session_state.uploader_key = str(uuid.uuid4()) 
         st.session_state.generated_img_path = None
         st.session_state.generated_code = None
         st.session_state.manual_img_path = None
@@ -73,14 +71,11 @@ with st.sidebar:
         "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite-preview",
         "Gemini 3 Flash": "gemini-3-flash-preview"
     }
-    # 修改：預設改為 Gemini 3 Flash (索引值為 1)
     selected_model_display = st.selectbox("選擇 AI 模型", options=list(model_mapping.keys()), index=1)
     selected_model = model_mapping[selected_model_display]
 
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
     is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True)
-    
-    # 【新增功能】標示曲線選項
     is_curved_label = st.checkbox("💡 長度數字兩側加上標示曲線 (無箭號)", value=False)
 
 # ---------------- 檢核碼驗證 ----------------
@@ -94,7 +89,7 @@ st.success("✅ 授權通過！")
 # ---------------- 動態產生提示詞 ----------------
 curve_instruction = ""
 if is_curved_label:
-    curve_instruction = "\n8. 【標示曲線要求】：標示線段長度時，必須在數字兩側或周圍繪製「無箭頭」的弧線或大括號來涵蓋線段範圍（例如使用 ax.annotate 搭配 arrowprops=dict(arrowstyle='-', connectionstyle='arc3,rad=0.2', color='black')，務必確保 arrowstyle='-' 以隱藏箭頭）。"
+    curve_instruction = "\n8. 【標示曲線要求】：標示線段長度時，必須繪製「無箭頭」的弧線 (如 `arrowstyle='-'`) 涵蓋線段。為了避免線條壓到數字，輸出數字的 `text` 或 `annotate` 必須加上白色遮罩參數：`bbox=dict(boxstyle='square,pad=0.1', fc='white', ec='none')`。"
 
 # ---------------- 共用畫圖存檔函式 ----------------
 def execute_and_save_plot(python_code, file_format, transparent):
@@ -161,9 +156,9 @@ with tab1:
                         1. 務必將程式碼包裝在三個反引號(backticks)中。不要解釋，不要解答。
                         2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
                         3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
-                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可，不要留太多白邊。
-                        5. 頂點有英文標示 (需 offset)，長度/角度標示在圖上。
-                        6. 【極度重要】附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
+                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可。
+                        5. 頂點與長度標示：【防碎裂極度重要】絕對禁止使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$`)，請一律使用「純 Unicode 文字」(如 `'∠A=30°'`)，否則 Word 轉換時文字會破碎。
+                        6. 附圖只能畫出給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
                         7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}
                         """
                         
@@ -225,9 +220,10 @@ with tab2:
 1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
 2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
 3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
-4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可，不要留太多白邊。
-5. 頂點有英文標示 (需 offset)。【極度重要】只標示題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」！
-6. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}"""
+4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 個單位防裁切即可。
+5. 頂點與長度標示：【絕對禁止使用 LaTeX 語法】(如 `$\\angle A = 30^\\circ$`)，請一律使用純 Unicode 文字 (如 `'∠A=30°'`)，防止轉換 SVG 時文字破碎。
+6. 只標示題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」！
+7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}"""
         
         st.code(prompt_template, language="markdown")
         
