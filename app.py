@@ -71,16 +71,15 @@ with st.sidebar:
     is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True)
     
     st.markdown("---")
-    # 【UI 優化】將原本凌亂的 Checkbox 統整為乾淨的單選選單
     dim_style_mapping = {
         "無標線 (僅數字)": "none",
-        "完整弧線 (涵蓋全線段)": "full_arc",
-        "1/5 短弧線 (僅標示兩端)": "short_arc"
+        "完整弧線 (推薦，自動文字遮罩)": "full_arc",
+        "平行直線附端點 (如 |--- 25 ---|)": "line_ticks"
     }
     dim_style_display = st.radio(
         "📏 長度標示線風格",
         options=list(dim_style_mapping.keys()),
-        index=2 # 預設為您最想要的 1/5 短弧線
+        index=1 
     )
     dim_style = dim_style_mapping[dim_style_display]
     
@@ -111,8 +110,8 @@ dim_instruction = f"""
 系統已在背景內建 `draw_dimension(ax, p1, p2, text, mode='{dim_style}', invert=False)` 函式。
 - `p1`, `p2`: 線段端點座標 (例如 A, B)
 - `text`: 長度數字 (例如 '25')
-- `invert`: 弧線預設往外彎。若發現弧線凹進圖形內部，可設為 `True` 反轉。
-請「絕對必須」呼叫此函式來標示所有的線段長度！嚴禁自行使用 ax.plot 或 ax.annotate 畫弧線，否則座標會亂飛導致畫布爆炸！
+- `invert`: 標線預設往外側畫。若發現標線凹進圖形內部，可設為 `True` 反轉。
+請「絕對必須」呼叫此函式來標示所有的線段長度！嚴禁自行使用 ax.plot 或 ax.annotate 畫標線！
 範例寫法：`draw_dimension(ax, B, C, '5', mode='{dim_style}')`
 """
 
@@ -123,7 +122,6 @@ def execute_and_save_plot(python_code, file_format, transparent):
         safe_code = re.sub(r'plt\.show\(\)', '', python_code)
         mpl.rcParams['svg.fonttype'] = 'none'
         
-        # 【核心技術】植入給 AI 用的精準數學外掛函式
         def draw_dimension(ax, p1, p2, text, mode='full_arc', invert=False):
             import numpy as np
             p1 = np.array(p1, dtype=float)
@@ -133,35 +131,34 @@ def execute_and_save_plot(python_code, file_format, transparent):
             if L == 0: return
             mid = (p1 + p2) / 2
             
-            # 控制彎曲程度與方向
-            rad = 0.2 if not invert else -0.2
             perp = np.array([-v[1], v[0]]) / L
             if invert: perp = -perp
             
-            # 動態調整數字的距離 (短線段離近一點，長線段離遠一點)
             offset = max(L * 0.12, 0.4)
             
-            if mode == 'short_arc':
-                # 精準算出 15% 處的座標
-                p1_inner = p1 + v * 0.15
-                p2_inner = p2 - v * 0.15
-                # 畫出兩端完美的小短弧
-                ax.annotate('', xy=p1, xytext=p1_inner, arrowprops=dict(arrowstyle='-', connectionstyle=f'arc3,rad={-rad}', color='black'))
-                ax.annotate('', xy=p2, xytext=p2_inner, arrowprops=dict(arrowstyle='-', connectionstyle=f'arc3,rad={rad}', color='black'))
-                
-                t_pos = mid + perp * (offset * 0.6)
-                ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
-                
-            elif mode == 'full_arc':
+            if mode == 'full_arc':
+                rad = 0.2 if not invert else -0.2
                 ax.annotate('', xy=p1, xytext=p2, arrowprops=dict(arrowstyle='-', connectionstyle=f'arc3,rad={rad}', color='black'))
                 t_pos = mid + perp * offset
                 ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+                
+            elif mode == 'line_ticks':
+                line_offset = offset * 0.7
+                p1_line = p1 + perp * line_offset
+                p2_line = p2 + perp * line_offset
+                
+                ax.plot([p1_line[0], p2_line[0]], [p1_line[1], p2_line[1]], color='black', linewidth=1.5)
+                tick_len = offset * 0.3
+                ax.plot([p1_line[0], p1_line[0] - perp[0]*tick_len], [p1_line[1], p1_line[1] - perp[1]*tick_len], color='black', linewidth=1.5)
+                ax.plot([p2_line[0], p2_line[0] - perp[0]*tick_len], [p2_line[1], p2_line[1] - perp[1]*tick_len], color='black', linewidth=1.5)
+                
+                t_pos = mid + perp * line_offset
+                ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+                
             else:
-                # 無標線
                 t_pos = mid + perp * (offset * 0.5)
                 ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
 
-        # 建立專屬執行環境，將外掛函式放進去
         exec_globals = globals().copy()
         exec_globals['draw_dimension'] = draw_dimension
         
@@ -177,7 +174,7 @@ def execute_and_save_plot(python_code, file_format, transparent):
                 ax.patch.set_alpha(0.0)
                 
         file_path = f"output.{file_format}"
-        # 恢復 0.0 白邊，因為弧線不會再亂飛了
+        # 【去白邊關鍵】將 pad_inches 徹底歸零
         fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.0, transparent=transparent, dpi=300)
         return file_path
     except Exception as e:
@@ -224,9 +221,9 @@ with tab1:
                         1. 務必將程式碼包裝在三個反引號(backticks)中。不要解釋，不要解答。
                         2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
                         3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
-                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 到 0.8 個單位防裁切即可，不要讓圖形比例變小。
+                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 緊貼圖形邊緣，上下左右只需保留約 **0.2 個單位** 的極小留白，以徹底去除多餘白邊。
                         {latex_instruction}
-                        6. 附圖只能畫出給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
+                        6. 附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
                         7. 隱藏座標軸：`plt.axis('off')`。
                         {dim_instruction}
                         """
@@ -289,7 +286,7 @@ with tab2:
 1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
 2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
 3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
-4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 在上下左右各保留約 0.5 個單位即可。
+4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 緊貼圖形邊緣，上下左右只需保留約 **0.2 個單位** 的極小留白，以徹底去除多餘白邊。
 {latex_instruction}
 6. 只標示給定的已知條件，絕對不可以畫出答案！
 7. 隱藏座標軸：`plt.axis('off')`。
