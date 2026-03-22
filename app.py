@@ -25,16 +25,12 @@ if "generated_code" not in st.session_state:
     st.session_state.generated_code = None
 if "current_format" not in st.session_state:
     st.session_state.current_format = None
-if "text_input_ai" not in st.session_state:
-    st.session_state.text_input_ai = ""
 
 # Tab 2 狀態
 if "manual_img_path" not in st.session_state:
     st.session_state.manual_img_path = None
 if "manual_format" not in st.session_state:
     st.session_state.manual_format = None
-if "manual_code_input" not in st.session_state:
-    st.session_state.manual_code_input = ""
 
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = str(uuid.uuid4())
@@ -54,16 +50,12 @@ with st.sidebar:
     st.markdown("---")
     st.header("⚙️ 系統設定")
     
-    # 【新增功能】在標籤中直接加入 Markdown 超連結
     api_key_input = st.text_input("請輸入 [Google AI API Key](https://aistudio.google.com/app/api-keys)", type="password", value=st.session_state.api_key)
     if api_key_input != st.session_state.api_key:
          st.session_state.api_key = api_key_input
 
     if st.button("🗑️ 清除 API Key"):
         st.session_state.api_key = ""
-        st.session_state.generated_img_path = None
-        st.session_state.generated_code = None
-        st.session_state.manual_img_path = None
         st.rerun()
 
     passcode = st.text_input("請輸入檢核碼", type="password")
@@ -77,11 +69,20 @@ with st.sidebar:
 
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
     is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True)
-    is_curved_label = st.checkbox("💡 長度數字兩側加上標示曲線 (無箭號)", value=False)
-    is_text_masking = st.checkbox("💡 長度數字旁留出空白區 (Mask)", value=True)
     
-    # 【修正功能】強調必須是「短弧線」
-    is_short_dim_label = st.checkbox("💡 長度標示線縮短為兩端點的 1/5 短弧線 (無箭號)", value=False)
+    st.markdown("---")
+    # 【UI 優化】將原本凌亂的 Checkbox 統整為乾淨的單選選單
+    dim_style_mapping = {
+        "無標線 (僅數字)": "none",
+        "完整弧線 (涵蓋全線段)": "full_arc",
+        "1/5 短弧線 (僅標示兩端)": "short_arc"
+    }
+    dim_style_display = st.radio(
+        "📏 長度標示線風格",
+        options=list(dim_style_mapping.keys()),
+        index=2 # 預設為您最想要的 1/5 短弧線
+    )
+    dim_style = dim_style_mapping[dim_style_display]
     
     st.markdown("---")
     text_render_mode = st.radio(
@@ -100,35 +101,71 @@ if passcode not in ["kai", "kaishow"]:
 st.success("✅ 授權通過！")
 
 # ---------------- 動態產生提示詞輔助字串 ----------------
-# 1. 曲線指令
-curve_instruction = ""
-if is_curved_label:
-    curve_instruction = "\n8. 【標示曲線要求】：標示長度時，請使用 `ax.annotate('', xy=端點1, xytext=端點2, arrowprops=dict(arrowstyle='-', connectionstyle='arc3,rad=0.2', color='black'))` 來精準連接線段兩端點，不要連到文字中心。"
-
-# 2. LaTeX/Unicode 指令
 if is_latex_mode:
-    latex_instruction = "5. 頂點與長度標示：允許使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$` 或 `$2\\sqrt{3}$`) 來確保數學符號美觀。"
+    latex_instruction = "5. 頂點與長度標示：允許使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$` 或 `$2\\sqrt{3}$`)。"
 else:
-    latex_instruction = "5. 頂點與長度標示：【防碎裂極度重要】絕對禁止使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$` 或 `$2\\sqrt{3}$`)，請一律使用「純 Unicode 文字」(如 `'∠A=30°'`)，避免 SVG 匯入 Word 時文字碎裂。"
+    latex_instruction = "5. 頂點與長度標示：【防碎裂極度重要】絕對禁止使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$`)，請一律使用純 Unicode (如 `'∠A=30°'`)，避免 SVG 匯入 Word 時文字碎裂。"
 
-# 3. 文字遮罩指令
-mask_instruction = ""
-if is_text_masking:
-    mask_instruction = "\n9. 【文字遮罩要求】：輸出數字的 `text` 必須加上白色遮罩參數：`bbox=dict(fc='white', ec='none', pad=0.1)`，確保壓在底下的線條被擋住。"
+dim_instruction = f"""
+8. 【繪圖專用輔助函式 (極度重要)】：
+系統已在背景內建 `draw_dimension(ax, p1, p2, text, mode='{dim_style}', invert=False)` 函式。
+- `p1`, `p2`: 線段端點座標 (例如 A, B)
+- `text`: 長度數字 (例如 '25')
+- `invert`: 弧線預設往外彎。若發現弧線凹進圖形內部，可設為 `True` 反轉。
+請「絕對必須」呼叫此函式來標示所有的線段長度！嚴禁自行使用 ax.plot 或 ax.annotate 畫弧線，否則座標會亂飛導致畫布爆炸！
+範例寫法：`draw_dimension(ax, B, C, '5', mode='{dim_style}')`
+"""
 
-# 4. 1/5 短弧線指令 (徹底封殺直線)
-short_dim_instruction = ""
-if is_short_dim_label:
-    short_dim_instruction = "\n10. 【1/5 短弧線要求 (極度重要)】：標示線段長度時，請從兩端點分別向中間畫出約佔總長 1/5 的「彎曲弧線」，絕對不能畫成直線！建議使用 `ax.annotate('', xy=端點, xytext=往中間1/5處座標, arrowprops=dict(arrowstyle='-', connectionstyle='arc3,rad=0.2', color='black'))` 分別畫出兩段短弧。中間留白放數字。"
-
-# ---------------- 共用畫圖存檔函式 ----------------
+# ---------------- 共用畫圖存檔函式 (內建精準數學外掛) ----------------
 def execute_and_save_plot(python_code, file_format, transparent):
     try:
         plt.close('all') 
         safe_code = re.sub(r'plt\.show\(\)', '', python_code)
         mpl.rcParams['svg.fonttype'] = 'none'
         
-        exec(safe_code, globals())
+        # 【核心技術】植入給 AI 用的精準數學外掛函式
+        def draw_dimension(ax, p1, p2, text, mode='full_arc', invert=False):
+            import numpy as np
+            p1 = np.array(p1, dtype=float)
+            p2 = np.array(p2, dtype=float)
+            v = p2 - p1
+            L = np.linalg.norm(v)
+            if L == 0: return
+            mid = (p1 + p2) / 2
+            
+            # 控制彎曲程度與方向
+            rad = 0.2 if not invert else -0.2
+            perp = np.array([-v[1], v[0]]) / L
+            if invert: perp = -perp
+            
+            # 動態調整數字的距離 (短線段離近一點，長線段離遠一點)
+            offset = max(L * 0.12, 0.4)
+            
+            if mode == 'short_arc':
+                # 精準算出 15% 處的座標
+                p1_inner = p1 + v * 0.15
+                p2_inner = p2 - v * 0.15
+                # 畫出兩端完美的小短弧
+                ax.annotate('', xy=p1, xytext=p1_inner, arrowprops=dict(arrowstyle='-', connectionstyle=f'arc3,rad={-rad}', color='black'))
+                ax.annotate('', xy=p2, xytext=p2_inner, arrowprops=dict(arrowstyle='-', connectionstyle=f'arc3,rad={rad}', color='black'))
+                
+                t_pos = mid + perp * (offset * 0.6)
+                ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+                
+            elif mode == 'full_arc':
+                ax.annotate('', xy=p1, xytext=p2, arrowprops=dict(arrowstyle='-', connectionstyle=f'arc3,rad={rad}', color='black'))
+                t_pos = mid + perp * offset
+                ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+            else:
+                # 無標線
+                t_pos = mid + perp * (offset * 0.5)
+                ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+
+        # 建立專屬執行環境，將外掛函式放進去
+        exec_globals = globals().copy()
+        exec_globals['draw_dimension'] = draw_dimension
+        
+        exec(safe_code, exec_globals)
         fig = plt.gcf()
         
         if not fig.axes:
@@ -140,7 +177,8 @@ def execute_and_save_plot(python_code, file_format, transparent):
                 ax.patch.set_alpha(0.0)
                 
         file_path = f"output.{file_format}"
-        fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.1, transparent=transparent, dpi=300)
+        # 恢復 0.0 白邊，因為弧線不會再亂飛了
+        fig.savefig(file_path, format=file_format, bbox_inches='tight', pad_inches=0.0, transparent=transparent, dpi=300)
         return file_path
     except Exception as e:
         raise e
@@ -186,10 +224,11 @@ with tab1:
                         1. 務必將程式碼包裝在三個反引號(backticks)中。不要解釋，不要解答。
                         2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
                         3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
-                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 在上下左右各保留 **至少 1.0 個單位** 的空白 padding 區域以防止裁切。
+                        4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 留白約 0.5 到 0.8 個單位防裁切即可，不要讓圖形比例變小。
                         {latex_instruction}
-                        6. 【極度重要】附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
-                        7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}{mask_instruction}{short_dim_instruction}
+                        6. 附圖只能畫出給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
+                        7. 隱藏座標軸：`plt.axis('off')`。
+                        {dim_instruction}
                         """
                         
                         contents = [system_prompt]
@@ -250,10 +289,11 @@ with tab2:
 1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
 2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
 3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
-4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 在上下左右各保留 **至少 1.0 個單位** 的空白 padding 區域以防止裁切。
+4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 在上下左右各保留約 0.5 個單位即可。
 {latex_instruction}
-6. 只標示題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」！
-7. 隱藏座標軸：`plt.axis('off')`。{curve_instruction}{mask_instruction}{short_dim_instruction}"""
+6. 只標示給定的已知條件，絕對不可以畫出答案！
+7. 隱藏座標軸：`plt.axis('off')`。
+{dim_instruction}"""
         
         st.code(prompt_template, language="markdown")
         
