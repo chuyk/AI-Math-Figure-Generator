@@ -5,7 +5,7 @@ import re
 import os
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import uuid
+import uuid  # 新增：用於產生動態 key 以清空上傳區塊
 
 # ---------------- 設定頁面與標題 ----------------
 st.set_page_config(page_title="AI 數學幾何附圖生成器", page_icon="📐", layout="wide")
@@ -36,16 +36,18 @@ if "manual_format" not in st.session_state:
 if "manual_code_input" not in st.session_state:
     st.session_state.manual_code_input = ""
 
+# 用於重置 File Uploader 的動態 Key
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = str(uuid.uuid4())
 
 # ---------------- 側邊欄：設定區 ----------------
 with st.sidebar:
     st.header("🧹 畫面管理")
+    # 新增：一鍵清除按鈕
     if st.button("✨ 一鍵清除所有輸入與結果", use_container_width=True):
         st.session_state.text_input_ai = ""
         st.session_state.manual_code_input = ""
-        st.session_state.uploader_key = str(uuid.uuid4()) 
+        st.session_state.uploader_key = str(uuid.uuid4()) # 換一個新的 key，強制清空上傳檔案
         st.session_state.generated_img_path = None
         st.session_state.generated_code = None
         st.session_state.manual_img_path = None
@@ -71,14 +73,15 @@ with st.sidebar:
         "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite-preview",
         "Gemini 3 Flash": "gemini-3-flash-preview"
     }
+    # 修改：預設改為 Gemini 3 Flash (索引值為 1)
     selected_model_display = st.selectbox("選擇 AI 模型", options=list(model_mapping.keys()), index=1)
     selected_model = model_mapping[selected_model_display]
 
     output_format = st.radio("選擇圖片輸出格式", ["svg", "png"], index=0)
     is_transparent = st.checkbox("💡 生成透明背景圖形 (去背)", value=True)
     
-    # 【全新功能】是否加上長度標示的弧線/大括號
-    is_curved_label = st.checkbox("💡 長度數字兩側加上標示曲線 (弧線/大括號)", value=False)
+    # 【新增功能】標示曲線選項
+    is_curved_label = st.checkbox("💡 長度數字兩側加上標示曲線 (無箭號)", value=False)
 
 # ---------------- 檢核碼驗證 ----------------
 if passcode not in ["kai", "kaishow"]:
@@ -88,10 +91,10 @@ if passcode not in ["kai", "kaishow"]:
 
 st.success("✅ 授權通過！")
 
-# ---------------- 動態生成 Prompt 輔助字串 ----------------
+# ---------------- 動態產生提示詞 ----------------
 curve_instruction = ""
 if is_curved_label:
-    curve_instruction = "\n8. 【標示曲線要求】：使用者要求長度數字旁必須有「曲線」。標示線段長度時，請使用 `ax.annotate` 搭配 `arrowprops=dict(arrowstyle='-', connectionstyle='arc3,rad=0.2', color='black')`，或繪製大括號/弧線，來涵蓋被標示的線段範圍，並將數字或問號標示在曲線外側（如同數學講義的畫法）。"
+    curve_instruction = "\n8. 【標示曲線要求】：標示線段長度時，必須在數字兩側或周圍繪製「無箭頭」的弧線或大括號來涵蓋線段範圍（例如使用 ax.annotate 搭配 arrowprops=dict(arrowstyle='-', connectionstyle='arc3,rad=0.2', color='black')，務必確保 arrowstyle='-' 以隱藏箭頭）。"
 
 # ---------------- 共用畫圖存檔函式 ----------------
 def execute_and_save_plot(python_code, file_format, transparent):
