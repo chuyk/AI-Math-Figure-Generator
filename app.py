@@ -82,7 +82,9 @@ with st.sidebar:
     dim_style_mapping = {
         "無標線 (僅數字)": "none",
         "完整弧線 (推薦，自動文字遮罩)": "full_arc",
-        "平行直線附端點 (如 |--- 25 ---|)": "line_ticks"
+        "平行直線附端點 (如 |--- 25 ---|)": "line_ticks",
+        "無數字也無角度，只留英文符號": "symbol_only",
+        "無數字有角度及英文符號 (不畫弧線)": "angle_symbol_no_arc"
     }
     dim_style_display = st.radio(
         "📏 長度標示線風格",
@@ -109,17 +111,17 @@ st.success("✅ 授權通過！")
 
 # ---------------- 動態產生提示詞輔助字串 ----------------
 if is_latex_mode:
-    latex_instruction = "5. 頂點與長度標示：允許使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$` 或 `$2\\sqrt{3}$`)。"
+    latex_instruction = "5. 頂點與長度標示：允許使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$` 或 `$2\\sqrt{3}$`)。英文字母請一律維持大寫或標準數學標記。"
 else:
-    latex_instruction = "5. 頂點與長度標示：【防碎裂極度重要】絕對禁止使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$`)，請一律使用純 Unicode (如 `'∠A=30°'`)，避免 SVG 匯入 Word 時文字碎裂。"
+    latex_instruction = "5. 頂點與長度標示：【防碎裂極度重要】絕對禁止使用 LaTeX 語法 (如 `$\\angle A = 30^\\circ$`)，請一律使用純 Unicode (如 `'∠A=30°'`)，避免 SVG 匯入 Word 時文字碎裂。英文字母如 A, B, C 等請直接使用純文字。"
 
 dim_instruction = f"""
 8. 【繪圖專用輔助函式 (極度重要)】：
 系統已在背景內建 `draw_dimension(ax, p1, p2, text, mode='{dim_style}', invert=False)` 函式。
 - `p1`, `p2`: 線段端點座標 (例如 A, B)
-- `text`: 長度數字 (例如 '25')
+- `text`: 長度數字或角度文字描述 (例如 '25' 或 '∠A=120°' 或 '120°')
 - `invert`: 標線預設往外側畫。若發現標線凹進圖形內部，可設為 `True` 反轉。
-請「絕對必須」呼叫此函式來標示所有的線段長度！嚴禁自行使用 ax.plot 或 ax.annotate 畫標線！
+請「絕對必須」呼叫此函式來標示所有的線段長度與角度描述！嚴禁自行使用 ax.plot 或 ax.annotate 畫標線！
 範例寫法：`draw_dimension(ax, B, C, '5', mode='{dim_style}')`
 """
 
@@ -128,10 +130,33 @@ def execute_and_save_plot(python_code, file_format, transparent):
     try:
         plt.close('all') 
         safe_code = re.sub(r'plt\.show\(\)', '', python_code)
+        
+        # 設定為 Times New Roman 字型與 SVG 格式防破碎
         mpl.rcParams['svg.fonttype'] = 'none'
+        plt.rcParams['font.family'] = 'serif'
+        plt.rcParams['font.serif'] = ['Times New Roman'] + plt.rcParams['font.serif']
         
         def draw_dimension(ax, p1, p2, text, mode='full_arc', invert=False):
             import numpy as np
+            import re
+            
+            text_str = str(text)
+            
+            # --- 依照模式過濾文字 ---
+            if mode == 'symbol_only':
+                # 剔除所有數字與角度、符號 (° 與 ∠)，只留英文/其他符號
+                text_str = re.sub(r'[\d°∠]', '', text_str).strip()
+            elif mode == 'angle_symbol_no_arc':
+                # 僅剔除「純數字(後面沒接°的)」，保留「帶角度的數字(如 120°)」與「角度符號和英文」
+                # 匹配後面「沒有」緊接著 ° 符號的獨立數字並將其移除
+                text_str = re.sub(r'\d+(?!°)', '', text_str).strip()
+                
+            # --- 字體大小判定 ---
+            # 如果文字內包含任何獨立數字（不含角度旁的數字），或包含任何數字
+            # 依需求：只要含有數字（如 120° 或 25），其包含數字部分的字體大小改為 20；若為純英文字母/符號，維持 38
+            has_digit = any(c.isdigit() for c in text_str)
+            f_size = 20 if has_digit else 38
+            
             p1 = np.array(p1, dtype=float)
             p2 = np.array(p2, dtype=float)
             v = p2 - p1
@@ -148,7 +173,8 @@ def execute_and_save_plot(python_code, file_format, transparent):
                 rad = 0.2 if not invert else -0.2
                 ax.annotate('', xy=p1, xytext=p2, arrowprops=dict(arrowstyle='-', connectionstyle=f'arc3,rad={rad}', color='black'))
                 t_pos = mid + perp * offset
-                ax.text(t_pos[0], t_pos[1], text, fontsize=38, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+                if text_str:
+                    ax.text(t_pos[0], t_pos[1], text_str, fontsize=f_size, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
                 
             elif mode == 'line_ticks':
                 line_offset = offset * 0.7
@@ -161,11 +187,14 @@ def execute_and_save_plot(python_code, file_format, transparent):
                 ax.plot([p2_line[0], p2_line[0] - perp[0]*tick_len], [p2_line[1], p2_line[1] - perp[1]*tick_len], color='black', linewidth=1.5)
                 
                 t_pos = mid + perp * line_offset
-                ax.text(t_pos[0], t_pos[1], text, fontsize=38, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+                if text_str:
+                    ax.text(t_pos[0], t_pos[1], text_str, fontsize=f_size, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
                 
             else:
+                # 涵蓋 'none', 'symbol_only', 'angle_symbol_no_arc'，不畫任何線/弧線
                 t_pos = mid + perp * (offset * 0.5)
-                ax.text(t_pos[0], t_pos[1], text, fontsize=38, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+                if text_str:
+                    ax.text(t_pos[0], t_pos[1], text_str, fontsize=f_size, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
 
         exec_globals = globals().copy()
         exec_globals['draw_dimension'] = draw_dimension
@@ -207,7 +236,6 @@ with tab1:
         with btn_col1:
             generate_btn = st.button("🚀 開始產生幾何圖形", type="primary", use_container_width=True)
         with btn_col2:
-            # 綁定回呼函式，解決 Exception 報錯問題
             st.button("🗑️ 清除題目與結果", use_container_width=True, on_click=clear_ai_tab)
 
     with col2:
@@ -233,7 +261,7 @@ with tab1:
                         【嚴格限制與防裁切要求】
                         1. 務必將程式碼包裝在三個反引號(backticks)中。不要解釋，不要解答。
                         2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
-                        3. 設定字級：`plt.rcParams.update({{'font.size': 38}})`。
+                        3. 設定字體與字級：設定 `plt.rcParams.update({{'font.size': 38, 'font.family': 'serif', 'font.serif': ['Times New Roman']}})`。如果文字標示包含數字（如 '120°' 或純數字 '25'），請在呼叫 `ax.text` 時強制個別加上 `fontsize=20`；若是純英文標記（如 'A', 'B'），則維持大小 38。
                         4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 緊貼圖形邊緣，上下左右只需保留約 **0.2 個單位** 的極小留白，以徹底去除多餘白邊。
                         {latex_instruction}
                         6. 附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
@@ -270,9 +298,8 @@ with tab1:
 
                     except Exception as e:
                         error_msg = str(e)
-                        print(f"[系統錯誤日誌] AI 生成時發生錯誤: {error_msg}") # 將詳細錯誤寫入 Console
+                        print(f"[系統錯誤日誌] AI 生成時發生錯誤: {error_msg}")
                         
-                        # 友善的中文防呆提示
                         if "quota" in error_msg.lower() or "429" in error_msg:
                             st.error("❌ API 呼叫次數已達上限，或目前的 API Key 額度已耗盡。請稍後再試，或更換一組 API Key。")
                         elif "api key" in error_msg.lower() or "authentication" in error_msg.lower() or "400" in error_msg or "403" in error_msg:
@@ -280,7 +307,6 @@ with tab1:
                         else:
                             st.error("❌ 系統在理解題目或產生程式碼時發生錯誤，請稍後再試或換個方式描述題目。")
                         
-                        # 只有在開發者模式 (輸入 kaishow) 時才顯示原始錯誤與 AI 回應
                         if st.session_state.passcode_key == "kaishow":
                             st.warning(f"🔧 [開發者模式] 原始報錯內容:\n{error_msg}")
                             if 'response_text' in locals():
@@ -311,7 +337,7 @@ with tab2:
 【嚴格限制與防裁切要求】
 1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
 2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
-3. 設定字級：`plt.rcParams.update({{'font.size': 38}})`。
+3. 設定字體與字級：設定 `plt.rcParams.update({{'font.size': 38, 'font.family': 'serif', 'font.serif': ['Times New Roman']}})`。如果文字標示包含數字（如 '120°' 或純數字 '25'），請在呼叫 `ax.text` 時強制個別加上 `fontsize=20`；若是純英文標記（如 'A', 'B'），則維持大小 38。
 4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 緊貼圖形邊緣，上下左右只需保留約 **0.2 個單位** 的極小留白，以徹底去除多餘白邊。
 {latex_instruction}
 6. 只標示給定的已知條件，絕對不可以畫出答案！
@@ -327,7 +353,6 @@ with tab2:
         with btn_col3:
             execute_btn = st.button("⚡ 執行程式碼並產出圖形", type="primary", use_container_width=True)
         with btn_col4:
-            # 綁定回呼函式
             st.button("🗑️ 清除程式碼與結果", use_container_width=True, on_click=clear_manual_tab)
     
     with col_right:
@@ -348,11 +373,10 @@ with tab2:
                             st.success("🎉 圖形繪製成功！")
                             
                         except Exception as e:
-                            # 手動執行區也加入防呆提示，將真錯誤送到 console
                             print(f"[系統錯誤日誌] 手動執行程式碼時發生錯誤: {str(e)}")
                             st.error("❌ 程式碼執行失敗。請檢查您的 Python 語法或繪圖邏輯是否有誤。")
                             if st.session_state.passcode_key == "kaishow":
-                                st.warning(f"🔧 [開發者模式] 原始報錯內容:\n{str(e)}")
+                                st.warning(f"🔧 [開發者模式] 原始報慢內容:\n{str(e)}")
         
         if st.session_state.manual_img_path and os.path.exists(st.session_state.manual_img_path):
             with result_container_manual:
