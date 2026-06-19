@@ -148,7 +148,7 @@ def execute_and_save_plot(python_code, file_format, transparent):
                 rad = 0.2 if not invert else -0.2
                 ax.annotate('', xy=p1, xytext=p2, arrowprops=dict(arrowstyle='-', connectionstyle=f'arc3,rad={rad}', color='black'))
                 t_pos = mid + perp * offset
-                ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+                ax.text(t_pos[0], t_pos[1], text, fontsize=38, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
                 
             elif mode == 'line_ticks':
                 line_offset = offset * 0.7
@@ -161,11 +161,11 @@ def execute_and_save_plot(python_code, file_format, transparent):
                 ax.plot([p2_line[0], p2_line[0] - perp[0]*tick_len], [p2_line[1], p2_line[1] - perp[1]*tick_len], color='black', linewidth=1.5)
                 
                 t_pos = mid + perp * line_offset
-                ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+                ax.text(t_pos[0], t_pos[1], text, fontsize=38, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
                 
             else:
                 t_pos = mid + perp * (offset * 0.5)
-                ax.text(t_pos[0], t_pos[1], text, fontsize=18, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
+                ax.text(t_pos[0], t_pos[1], text, fontsize=38, ha='center', va='center', bbox=dict(fc='white', ec='none', pad=0.1))
 
         exec_globals = globals().copy()
         exec_globals['draw_dimension'] = draw_dimension
@@ -233,7 +233,7 @@ with tab1:
                         【嚴格限制與防裁切要求】
                         1. 務必將程式碼包裝在三個反引號(backticks)中。不要解釋，不要解答。
                         2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
-                        3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
+                        3. 設定字級：`plt.rcParams.update({{'font.size': 38}})`。
                         4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 緊貼圖形邊緣，上下左右只需保留約 **0.2 個單位** 的極小留白，以徹底去除多餘白邊。
                         {latex_instruction}
                         6. 附圖只能畫出題目中給定的「已知條件」，絕對不可以畫出要求解的「答案」或輔助線！
@@ -311,7 +311,7 @@ with tab2:
 【嚴格限制與防裁切要求】
 1. 務必將程式碼包裝在三個反引號中。不要解釋，不要解答。
 2. 開頭加入 `import matplotlib as mpl` 與 `mpl.rcParams['svg.fonttype'] = 'none'`。
-3. 設定字級：`plt.rcParams.update({{'font.size': 18}})`。
+3. 設定字級：`plt.rcParams.update({{'font.size': 38}})`。
 4. 畫布大小 `plt.figure(figsize=(6, 6))`。使用 `ax.set_xlim()` 和 `ax.set_ylim()` 緊貼圖形邊緣，上下左右只需保留約 **0.2 個單位** 的極小留白，以徹底去除多餘白邊。
 {latex_instruction}
 6. 只標示給定的已知條件，絕對不可以畫出答案！
