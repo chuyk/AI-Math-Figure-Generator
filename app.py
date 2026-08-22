@@ -66,9 +66,10 @@ with st.sidebar:
     passcode = st.text_input("請輸入檢核碼", type="password", key="passcode_key")
 
     model_mapping = {
-        "Gemini 3.5 Flash": "gemini-3.5-flash",
-        "Gemini 3.1 Flash-Lite": "gemini-3.1-flash-lite",
-        "Gemini 3 Flash": "gemini-3-flash-preview",
+        "gemini-3.6-flash": "gemini-3.6-flash",
+        "gemini-3.5-flash": "gemini-3.5-flash",
+        "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
         "Gemma 4 31B": "gemma-4-31b-it",
         "Gemma 4 26B A4B": "gemma-4-26b-a4b-it"
     }
